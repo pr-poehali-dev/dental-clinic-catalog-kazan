@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "name": "Register validates required fields",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "register",
+        "email": "",
+        "password": "",
+        "full_name": ""
+      },
+      "expectedStatus": 400,
+      "expectedBody": {
+        "error": "string"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login validates credentials",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "login",
+        "email": "wrong@example.com",
+        "password": "wrongpass"
+      },
+      "expectedStatus": 401,
+      "expectedBody": {
+        "error": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

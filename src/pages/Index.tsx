@@ -4,17 +4,34 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useToast } from '@/hooks/use-toast';
 import Icon from '@/components/ui/icon';
 import type { Clinic } from '@/App';
+import type { User } from '@/lib/api';
+import { authAPI } from '@/lib/api';
+import { authStorage } from '@/lib/auth';
 
 type IndexProps = {
   clinics: Clinic[];
   onSelectClinic: (id: number) => void;
+  user: User | null;
+  onLogin: (user: User) => void;
+  onLogout: () => void;
+  onGoToAdmin: () => void;
 };
 
-const Index = ({ clinics, onSelectClinic }: IndexProps) => {
+const Index = ({ clinics, onSelectClinic, user, onLogin, onLogout, onGoToAdmin }: IndexProps) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedService, setSelectedService] = useState<string>('');
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authLoading, setAuthLoading] = useState(false);
+  const { toast } = useToast();
+
+  const [loginData, setLoginData] = useState({ email: '', password: '' });
+  const [registerData, setRegisterData] = useState({ email: '', password: '', full_name: '' });
 
   const allServices = Array.from(new Set(clinics.flatMap(c => c.services)));
 
@@ -24,6 +41,72 @@ const Index = ({ clinics, onSelectClinic }: IndexProps) => {
     const matchesService = !selectedService || clinic.services.includes(selectedService);
     return matchesSearch && matchesService;
   });
+
+  const handleLogin = async () => {
+    if (!loginData.email || !loginData.password) {
+      toast({
+        title: 'Ошибка',
+        description: 'Заполните все поля',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      const response = await authAPI.login(loginData.email, loginData.password);
+      authStorage.setToken(response.token);
+      authStorage.setUser(response.user);
+      onLogin(response.user);
+      setAuthDialogOpen(false);
+      toast({
+        title: 'Успешно',
+        description: `Добро пожаловать, ${response.user.full_name}!`
+      });
+      setLoginData({ email: '', password: '' });
+    } catch (error) {
+      toast({
+        title: 'Ошибка входа',
+        description: error instanceof Error ? error.message : 'Неизвестная ошибка',
+        variant: 'destructive'
+      });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegister = async () => {
+    if (!registerData.email || !registerData.password || !registerData.full_name) {
+      toast({
+        title: 'Ошибка',
+        description: 'Заполните все поля',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      const response = await authAPI.register(registerData.email, registerData.password, registerData.full_name);
+      authStorage.setToken(response.token);
+      authStorage.setUser(response.user);
+      onLogin(response.user);
+      setAuthDialogOpen(false);
+      toast({
+        title: 'Успешно',
+        description: `Добро пожаловать, ${response.user.full_name}!`
+      });
+      setRegisterData({ email: '', password: '', full_name: '' });
+    } catch (error) {
+      toast({
+        title: 'Ошибка регистрации',
+        description: error instanceof Error ? error.message : 'Неизвестная ошибка',
+        variant: 'destructive'
+      });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -35,30 +118,105 @@ const Index = ({ clinics, onSelectClinic }: IndexProps) => {
             </div>
             <h1 className="text-2xl font-bold text-gradient">ДентКазань</h1>
           </div>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button className="gradient-primary text-white hover-scale">
-                <Icon name="LogIn" size={18} className="mr-2" />
-                Войти
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Вход в личный кабинет</DialogTitle>
-                <DialogDescription>
-                  Войдите, чтобы оставлять отзывы и сохранять любимые клиники
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <Input placeholder="Email" type="email" />
-                <Input placeholder="Пароль" type="password" />
-                <Button className="w-full gradient-primary text-white">Войти</Button>
-                <p className="text-center text-sm text-muted-foreground">
-                  Нет аккаунта? <span className="text-primary cursor-pointer hover:underline">Зарегистрироваться</span>
-                </p>
-              </div>
-            </DialogContent>
-          </Dialog>
+          
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="hover-scale">
+                  <Icon name="User" size={18} className="mr-2" />
+                  {user.full_name}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {user.is_admin && (
+                  <DropdownMenuItem onClick={onGoToAdmin}>
+                    <Icon name="Shield" size={16} className="mr-2" />
+                    Админ-панель
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={onLogout}>
+                  <Icon name="LogOut" size={16} className="mr-2" />
+                  Выйти
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Dialog open={authDialogOpen} onOpenChange={setAuthDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="gradient-primary text-white hover-scale">
+                  <Icon name="LogIn" size={18} className="mr-2" />
+                  Войти
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Добро пожаловать!</DialogTitle>
+                  <DialogDescription>
+                    Войдите или зарегистрируйтесь для доступа ко всем возможностям
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <Tabs value={authMode} onValueChange={(v) => setAuthMode(v as 'login' | 'register')}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="login">Вход</TabsTrigger>
+                    <TabsTrigger value="register">Регистрация</TabsTrigger>
+                  </TabsList>
+                  
+                  <TabsContent value="login" className="space-y-4">
+                    <Input
+                      placeholder="Email"
+                      type="email"
+                      value={loginData.email}
+                      onChange={(e) => setLoginData({...loginData, email: e.target.value})}
+                      onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                    />
+                    <Input
+                      placeholder="Пароль"
+                      type="password"
+                      value={loginData.password}
+                      onChange={(e) => setLoginData({...loginData, password: e.target.value})}
+                      onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                    />
+                    <Button
+                      className="w-full gradient-primary text-white"
+                      onClick={handleLogin}
+                      disabled={authLoading}
+                    >
+                      {authLoading ? 'Вход...' : 'Войти'}
+                    </Button>
+                  </TabsContent>
+                  
+                  <TabsContent value="register" className="space-y-4">
+                    <Input
+                      placeholder="Полное имя"
+                      value={registerData.full_name}
+                      onChange={(e) => setRegisterData({...registerData, full_name: e.target.value})}
+                    />
+                    <Input
+                      placeholder="Email"
+                      type="email"
+                      value={registerData.email}
+                      onChange={(e) => setRegisterData({...registerData, email: e.target.value})}
+                    />
+                    <Input
+                      placeholder="Пароль"
+                      type="password"
+                      value={registerData.password}
+                      onChange={(e) => setRegisterData({...registerData, password: e.target.value})}
+                      onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
+                    />
+                    <Button
+                      className="w-full gradient-primary text-white"
+                      onClick={handleRegister}
+                      disabled={authLoading}
+                    >
+                      {authLoading ? 'Регистрация...' : 'Зарегистрироваться'}
+                    </Button>
+                  </TabsContent>
+                </Tabs>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
       </nav>
 

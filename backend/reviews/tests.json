@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "Add review without auth token",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "clinic_id": 1,
+        "rating": 5,
+        "review_text": "Great clinic!"
+      },
+      "expectedStatus": 401,
+      "expectedBody": {
+        "error": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

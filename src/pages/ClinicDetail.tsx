@@ -4,13 +4,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { useToast } from '@/hooks/use-toast';
 import Icon from '@/components/ui/icon';
 import type { Clinic } from '@/App';
+import type { User } from '@/lib/api';
+import { reviewsAPI } from '@/lib/api';
+import { authStorage } from '@/lib/auth';
 
 type ClinicDetailProps = {
   clinic: Clinic;
   onBack: () => void;
+  user: User | null;
+  onReviewAdded: () => void;
 };
 
 const StarRating = ({ rating, size = 20, editable = false, onChange }: { 
@@ -41,14 +46,55 @@ const StarRating = ({ rating, size = 20, editable = false, onChange }: {
   );
 };
 
-const ClinicDetail = ({ clinic, onBack }: ClinicDetailProps) => {
+const ClinicDetail = ({ clinic, onBack, user, onReviewAdded }: ClinicDetailProps) => {
   const [newReviewRating, setNewReviewRating] = useState(5);
   const [newReviewText, setNewReviewText] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const { toast } = useToast();
 
-  const handleSubmitReview = () => {
-    console.log('New review:', { rating: newReviewRating, text: newReviewText });
-    setNewReviewText('');
-    setNewReviewRating(5);
+  const handleSubmitReview = async () => {
+    if (!user) {
+      toast({
+        title: 'Требуется авторизация',
+        description: 'Войдите, чтобы оставить отзыв',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!newReviewText.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Напишите текст отзыва',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const token = authStorage.getToken();
+      if (!token) throw new Error('Токен не найден');
+
+      await reviewsAPI.add(token, clinic.id, newReviewRating, newReviewText);
+
+      toast({
+        title: 'Успех',
+        description: 'Отзыв успешно добавлен'
+      });
+
+      setNewReviewText('');
+      setNewReviewRating(5);
+      onReviewAdded();
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: error instanceof Error ? error.message : 'Не удалось добавить отзыв',
+        variant: 'destructive'
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -127,7 +173,7 @@ const ClinicDetail = ({ clinic, onBack }: ClinicDetailProps) => {
               <TabsList className="w-full grid grid-cols-2">
                 <TabsTrigger value="reviews" className="data-[state=active]:gradient-primary data-[state=active]:text-white">
                   <Icon name="MessageSquare" size={18} className="mr-2" />
-                  Отзывы ({clinic.reviews.length})
+                  Отзывы ({clinic.reviews?.length || 0})
                 </TabsTrigger>
                 <TabsTrigger value="add-review" className="data-[state=active]:gradient-primary data-[state=active]:text-white">
                   <Icon name="PenSquare" size={18} className="mr-2" />
@@ -136,30 +182,37 @@ const ClinicDetail = ({ clinic, onBack }: ClinicDetailProps) => {
               </TabsList>
               
               <TabsContent value="reviews" className="space-y-4 mt-6">
-                {clinic.reviews.map(review => (
-                  <Card key={review.id} className="border-2 hover:border-primary transition-colors">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg">{review.author}</CardTitle>
-                          <CardDescription className="flex items-center gap-2 mt-2">
-                            <StarRating rating={review.rating} size={16} />
-                            <span className="text-xs">
-                              {new Date(review.date).toLocaleDateString('ru-RU', { 
-                                year: 'numeric', 
-                                month: 'long', 
-                                day: 'numeric' 
-                              })}
-                            </span>
-                          </CardDescription>
+                {clinic.reviews && clinic.reviews.length > 0 ? (
+                  clinic.reviews.map(review => (
+                    <Card key={review.id} className="border-2 hover:border-primary transition-colors">
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="text-lg">{review.author}</CardTitle>
+                            <CardDescription className="flex items-center gap-2 mt-2">
+                              <StarRating rating={review.rating} size={16} />
+                              <span className="text-xs">
+                                {new Date(review.date).toLocaleDateString('ru-RU', { 
+                                  year: 'numeric', 
+                                  month: 'long', 
+                                  day: 'numeric' 
+                                })}
+                              </span>
+                            </CardDescription>
+                          </div>
                         </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-gray-700 leading-relaxed">{review.text}</p>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-gray-700 leading-relaxed">{review.text}</p>
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
+                  <div className="text-center py-12">
+                    <Icon name="MessageSquare" size={48} className="mx-auto text-gray-300 mb-4" />
+                    <p className="text-gray-500">Отзывов пока нет. Будьте первым!</p>
+                  </div>
+                )}
               </TabsContent>
               
               <TabsContent value="add-review" className="mt-6">
@@ -192,29 +245,23 @@ const ClinicDetail = ({ clinic, onBack }: ClinicDetailProps) => {
                       />
                     </div>
                     
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button 
-                          className="w-full gradient-primary text-white text-lg py-6"
-                          disabled={!newReviewText.trim()}
-                        >
-                          <Icon name="Send" size={20} className="mr-2" />
-                          Опубликовать отзыв
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Требуется авторизация</DialogTitle>
-                          <DialogDescription>
-                            Чтобы оставить отзыв, необходимо войти в свой аккаунт
-                          </DialogDescription>
-                        </DialogHeader>
-                        <Button className="gradient-primary text-white">
-                          <Icon name="LogIn" size={18} className="mr-2" />
-                          Войти
-                        </Button>
-                      </DialogContent>
-                    </Dialog>
+                    {user ? (
+                      <Button 
+                        className="w-full gradient-primary text-white text-lg py-6"
+                        disabled={!newReviewText.trim() || submitting}
+                        onClick={handleSubmitReview}
+                      >
+                        <Icon name="Send" size={20} className="mr-2" />
+                        {submitting ? 'Отправка...' : 'Опубликовать отзыв'}
+                      </Button>
+                    ) : (
+                      <div className="p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg text-center">
+                        <Icon name="AlertCircle" size={24} className="mx-auto text-yellow-600 mb-2" />
+                        <p className="text-sm text-yellow-800">
+                          Войдите, чтобы оставить отзыв
+                        </p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>

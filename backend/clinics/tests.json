@@ -1,0 +1,16 @@
+{
+  "tests": [
+    {
+      "name": "Get all clinics returns array",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Get clinic by id returns object",
+      "method": "GET",
+      "path": "/?clinic_id=1",
+      "expectedStatus": 200
+    }
+  ]
+}
